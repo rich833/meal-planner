@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meal Planner</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Meal Planner</h1>
+    </header>
+    <main>
+        <section id="meal-submission">
+            <h2>Submit New Meal</h2>
+            <form id="meal-form">
+                <input type="text" id="meal-name" placeholder="Meal Name" required>
+                <select id="meal-type">
+                    <option value="Breakfast">Breakfast</option>
+                    <option value="Lunch">Lunch</option>
+                    <option value="Dinner">Dinner</option>
+                    <option value="Snack">Snack</option>
+                </select>
+                <textarea id="meal-ingredients" placeholder="Ingredients (one per line)" required></textarea>
+                <button type="submit">Add Meal</button>
+            </form>
+        </section>
+        <section id="meal-planner">
+            <h2>Weekly Meal Planner</h2>
+            <div id="filter-controls">
+                <select id="filter-type">
+                    <option value="All">All</option>
+                    <option value="Breakfast">Breakfast</option>
+                    <option value="Lunch">Lunch</option>
+                    <option value="Dinner">Dinner</option>
+                    <option value="Snack">Snack</option>
+                </select>
+                <input type="text" id="search-name" placeholder="Search by name">
+            </div>
+            <div id="meals-list"></div>
+            <button id="generate-list">Generate Shopping List</button>
+        </section>
+        <section id="shopping-list">
+            <h2>Shopping List</h2>
+            <ul id="list"></ul>
+        </section>
+    </main>
+
+    <!-- Ingredient Customization Modal -->
+    <div id="ingredient-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeModal()">&times;</span>
+            <h3>Customize Ingredients</h3>
+            <div id="modal-ingredients"></div>
+            <button id="confirm-ingredients">Confirm</button>
+        </div>
+    </div>
+
+    <!-- Meal Selection Modal -->
+    <div id="meal-selection-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeModal()">&times;</span>
+            <div id="meal-selection-modal-content"></div>
+            <button id="save-ingredients">Confirm Ingredients</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
