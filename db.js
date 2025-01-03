@@ -1,6 +1,3 @@
-import { createClient } from '@supabase/supabase-js'
-
-// db.js
 // Instead of importing from node_modules, we'll use the browser version
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/+esm'
 
