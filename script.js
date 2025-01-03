@@ -1,94 +1,121 @@
-import { supabase } from './db.js'
+// script.js
+import { dbOperations } from './db.js';
 
-document.addEventListener('DOMContentLoaded', async () => {
-    let meals = [];
-    const mealForm = document.getElementById('meal-form');
-    const mealsList = document.getElementById('meals-list');
-    const shoppingList = document.getElementById('list');
-    const generateListButton = document.getElementById('generate-list');
-    const filterTypeSelect = document.getElementById('filter-type');
-    const searchNameInput = document.getElementById('search-name');
-    let editMode = false;
-    let editId = null;
-    let currentMealId;
-
-    // Fetch initial meals
-    async function fetchMeals() {
-        const { data, error } = await supabase
-            .from('meals')
-            .select('*');
-        
-        if (error) {
-            console.error('Error fetching meals:', error);
-            return;
-        }
-        
-        meals = data;
-        renderMeals();
+class MealPlanner {
+    constructor() {
+        this.meals = [];
+        this.editMode = false;
+        this.editId = null;
+        this.currentMealId = null;
+        this.initElements();
+        this.attachEventListeners();
+        this.loadMeals();
     }
 
-    // Initial load
-    await fetchMeals();
+    initElements() {
+        // Forms and lists
+        this.mealForm = document.getElementById('meal-form');
+        this.mealsList = document.getElementById('meals-list');
+        this.shoppingList = document.getElementById('list');
+        
+        // Buttons and inputs
+        this.generateListButton = document.getElementById('generate-list');
+        this.filterTypeSelect = document.getElementById('filter-type');
+        this.searchNameInput = document.getElementById('search-name');
+        
+        // Modals
+        this.ingredientModal = document.getElementById('ingredient-modal');
+        this.mealSelectionModal = document.getElementById('meal-selection-modal');
+        
+        // Modal elements
+        this.modalIngredients = document.getElementById('modal-ingredients');
+        this.confirmIngredientsBtn = document.getElementById('confirm-ingredients');
+        this.saveIngredientsBtn = document.getElementById('save-ingredients');
+        this.mealSelectionModalContent = document.getElementById('meal-selection-modal-content');
+    }
 
-    mealForm.addEventListener('submit', (event) => {
-        event.preventDefault();
+    attachEventListeners() {
+        // Form submissions
+        this.mealForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleMealSubmit();
+        });
+
+        // Modal actions
+        this.confirmIngredientsBtn.addEventListener('click', () => this.confirmIngredients());
+        this.saveIngredientsBtn.addEventListener('click', () => this.saveSelectedIngredients());
+        
+        // Close buttons
+        document.querySelectorAll('.close-button').forEach(button => {
+            button.addEventListener('click', () => this.closeModals());
+        });
+
+        // Filter and search
+        this.filterTypeSelect.addEventListener('change', () => this.filterMeals());
+        this.searchNameInput.addEventListener('input', () => this.filterMeals());
+        
+        // Generate list
+        this.generateListButton.addEventListener('click', () => this.generateShoppingList());
+    }
+
+    async loadMeals() {
+        try {
+            this.meals = await dbOperations.fetchMeals();
+            this.renderMeals();
+        } catch (error) {
+            console.error('Error loading meals:', error);
+        }
+    }
+
+    handleMealSubmit() {
         const name = document.getElementById('meal-name').value.trim();
         const type = document.getElementById('meal-type').value;
-        let ingredients = document.getElementById('meal-ingredients').value
+        const ingredients = document.getElementById('meal-ingredients').value
             .split(/[\n,]+/)
             .map(ingredient => ingredient.trim())
             .filter(ingredient => ingredient);
         
-        showIngredientModal(ingredients, name, type);
-    });
+        this.showIngredientModal(ingredients, name, type);
+    }
 
-    document.getElementById('confirm-ingredients').addEventListener('click', () => {
-        const name = document.getElementById('meal-name').value.trim();
-        const type = document.getElementById('meal-type').value;
-        confirmIngredients(name, type);
-    });
-
-    function showIngredientModal(ingredients, name, type) {
-        const modalIngredients = document.getElementById('modal-ingredients');
-        modalIngredients.innerHTML = ingredients.map((ingredient, index) => 
-            `<div class="ingredient-item">
+    showIngredientModal(ingredients, name, type) {
+        this.modalIngredients.innerHTML = ingredients.map((ingredient, index) => `
+            <div class="ingredient-item">
                 <span class="ingredient-name">${ingredient}</span>
                 <label class="optional-label">
                     <input type="checkbox" id="optional-${index}"> Optional
                 </label>
-                <a href="#" class="add-variant-link" onclick="showVariantInput(${index})">Add Variant</a>
-                <input type="text" id="variant-${index}" class="variant-input" placeholder="Enter variants (comma-separated)" style="display: none;">
-            </div>`
-        ).join('');
-    
-        document.getElementById('ingredient-modal').style.display = "block";
-    }
+                <button class="add-variant-btn" data-index="${index}">Add Variant</button>
+                <input type="text" id="variant-${index}" class="variant-input" 
+                       placeholder="Enter variants (comma-separated)" style="display: none;">
+            </div>
+        `).join('');
 
-    window.showVariantInput = function(index) {
-        const variantInput = document.getElementById(`variant-${index}`);
-        variantInput.style.display = 'block';
-    };
-
-    async function confirmIngredients(name, type) {
-        let updatedIngredients = [];
-        const ingredientsElements = document.querySelectorAll('.ingredient-item');
-    
-        ingredientsElements.forEach((item, index) => {
-            const baseIngredient = item.querySelector('.ingredient-name').textContent;
-            const isOptional = document.getElementById(`optional-${index}`).checked;
-            const variants = document.getElementById(`variant-${index}`).value.split(',').map(v => v.trim()).filter(v => v);
-    
-            updatedIngredients.push({ 
-                name: baseIngredient, 
-                optional: isOptional, 
-                variants: variants 
+        // Add variant button listeners
+        this.modalIngredients.querySelectorAll('.add-variant-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const variantInput = document.getElementById(`variant-${btn.dataset.index}`);
+                variantInput.style.display = 'block';
             });
         });
-    
-        await saveMealData(updatedIngredients, name, type);
+
+        this.ingredientModal.style.display = 'block';
     }
 
-    async function saveMealData(ingredients, name, type) {
+    async confirmIngredients() {
+        const name = document.getElementById('meal-name').value.trim();
+        const type = document.getElementById('meal-type').value;
+        const ingredients = Array.from(this.modalIngredients.querySelectorAll('.ingredient-item'))
+            .map(item => ({
+                name: item.querySelector('.ingredient-name').textContent,
+                optional: item.querySelector('input[type="checkbox"]').checked,
+                variants: item.querySelector('.variant-input').value
+                    .split(',')
+                    .map(v => v.trim())
+                    .filter(v => v)
+            }));
+
         const mealData = {
             name,
             type,
@@ -97,99 +124,127 @@ document.addEventListener('DOMContentLoaded', async () => {
             selected_options: []
         };
 
-        if (editMode) {
-            const { error } = await supabase
-                .from('meals')
-                .update(mealData)
-                .eq('id', editId);
-
-            if (error) {
-                console.error('Error updating meal:', error);
-                return;
+        try {
+            if (this.editMode) {
+                await dbOperations.updateMeal(this.editId, mealData);
+            } else {
+                await dbOperations.insertMeal(mealData);
             }
-        } else {
-            const { error } = await supabase
-                .from('meals')
-                .insert([mealData]);
-
-            if (error) {
-                console.error('Error inserting meal:', error);
-                return;
-            }
+            
+            await this.loadMeals();
+            this.mealForm.reset();
+            this.closeModals();
+            this.editMode = false;
+            this.editId = null;
+        } catch (error) {
+            console.error('Error saving meal:', error);
         }
-
-        await fetchMeals();
-        mealForm.reset();
-        closeModal();
     }
 
-    function renderMeals(filterType = 'All', searchName = '') {
-        mealsList.innerHTML = '';
-        meals
+    renderMeals(filterType = 'All', searchName = '') {
+        this.mealsList.innerHTML = '';
+        this.meals
             .filter(meal => filterType === 'All' || meal.type === filterType)
             .filter(meal => meal.name.toLowerCase().includes(searchName.toLowerCase()))
             .forEach(meal => {
                 const mealElement = document.createElement('div');
                 mealElement.className = 'meal-item';
-    
                 mealElement.innerHTML = `
-                    <input type="checkbox" id="meal-${meal.id}" ${meal.selected ? 'checked' : ''} onchange="toggleMealSelection(${meal.id})">
-                    <label for="meal-${meal.id}" class="meal-name">${meal.name} (${meal.type})</label>
-                    <button class="edit-button" onclick="editMeal(${meal.id})">&#9998;</button>
-                    <button class="delete-button" onclick="deleteMeal(${meal.id})">&#10060;</button>
+                    <input type="checkbox" class="meal-checkbox" data-id="${meal.id}" 
+                           ${meal.selected ? 'checked' : ''}>
+                    <span class="meal-name">${meal.name} (${meal.type})</span>
+                    <button class="edit-button" data-id="${meal.id}">✎</button>
+                    <button class="delete-button" data-id="${meal.id}">✖</button>
                 `;
-    
-                mealsList.appendChild(mealElement);
+
+                // Add event listeners
+                const checkbox = mealElement.querySelector('.meal-checkbox');
+                const editBtn = mealElement.querySelector('.edit-button');
+                const deleteBtn = mealElement.querySelector('.delete-button');
+
+                checkbox.addEventListener('change', () => this.toggleMealSelection(meal.id));
+                editBtn.addEventListener('click', () => this.editMeal(meal.id));
+                deleteBtn.addEventListener('click', () => this.deleteMeal(meal.id));
+
+                this.mealsList.appendChild(mealElement);
             });
     }
 
-    window.editMeal = function(mealId) {
-        const mealToEdit = meals.find(meal => meal.id === mealId);
-        if (mealToEdit) {
-            document.getElementById('meal-name').value = mealToEdit.name;
-            document.getElementById('meal-type').value = mealToEdit.type;
-            document.getElementById('meal-ingredients').value = mealToEdit.ingredients.map(ing => ing.name).join('\n');
-            
-            editMode = true;
-            editId = mealId;
-        }
+    filterMeals() {
+        const filterType = this.filterTypeSelect.value;
+        const searchName = this.searchNameInput.value.trim();
+        this.renderMeals(filterType, searchName);
     }
 
-    window.toggleMealSelection = async function(mealId) {
-        const mealIndex = meals.findIndex(m => m.id === mealId);
-        if (mealIndex !== -1) {
-            const newSelected = !meals[mealIndex].selected;
+    async toggleMealSelection(mealId) {
+        const meal = this.meals.find(m => m.id === mealId);
+        if (!meal) return;
+
+        try {
+            const newSelected = !meal.selected;
+            await dbOperations.updateMealSelection(mealId, newSelected);
             
-            const { error } = await supabase
-                .from('meals')
-                .update({ selected: newSelected })
-                .eq('id', mealId);
-
-            if (error) {
-                console.error('Error updating meal selection:', error);
-                return;
-            }
-
             if (newSelected) {
-                showMealSelectionModal(meals[mealIndex]);
-            } else {
-                const { error: updateError } = await supabase
-                    .from('meals')
-                    .update({ selected_options: [] })
-                    .eq('id', mealId);
-
-                if (updateError) {
-                    console.error('Error clearing selected options:', updateError);
-                }
+                this.showMealSelectionModal(meal);
             }
-            await fetchMeals();
+            
+            await this.loadMeals();
+        } catch (error) {
+            console.error('Error toggling meal selection:', error);
         }
     }
 
-    function showMealSelectionModal(meal) {
-        currentMealId = meal.id; 
-        const modalContent = document.getElementById('meal-selection-modal-content');
-        modalContent.innerHTML = '';
+    generateShoppingList() {
+        const selectedMeals = this.meals.filter(m => m.selected);
+        const ingredients = new Set();
+        
+        selectedMeals.forEach(meal => {
+            meal.selected_options.forEach(option => {
+                ingredients.add(option);
+            });
+        });
+    
+        this.shoppingList.innerHTML = Array.from(ingredients)
+            .map(ingredient => `<li>${ingredient}</li>`)
+            .join('');
+    }
+
+    closeModals() {
+        this.ingredientModal.style.display = 'none';
+        this.mealSelectionModal.style.display = 'none';
+    }
+
+    async editMeal(mealId) {
+        const meal = this.meals.find(m => m.id === mealId);
+        if (!meal) return;
+
+        this.editMode = true;
+        this.editId = mealId;
+        
+        document.getElementById('meal-name').value = meal.name;
+        document.getElementById('meal-type').value = meal.type;
+        document.getElementById('meal-ingredients').value = 
+            meal.ingredients.map(ing => ing.name).join('\n');
+        
+        this.showIngredientModal(
+            meal.ingredients.map(ing => ing.name),
+            meal.name,
+            meal.type
+        );
+    }
+
+    async deleteMeal(mealId) {
+        try {
+            await dbOperations.deleteMeal(mealId);
+            await this.loadMeals();
+        } catch (error) {
+            console.error('Error deleting meal:', error);
+        }
+    }
+
+    showMealSelectionModal(meal) {
+        this.currentMealId = meal.id;
+        this.mealSelectionModalContent.innerHTML = '';
     
         meal.ingredients.forEach((ingredient, index) => {
             const div = document.createElement('div');
@@ -204,184 +259,118 @@ document.addEventListener('DOMContentLoaded', async () => {
                 checkbox.type = 'checkbox';
                 checkbox.id = `optional-ingredient-${index}`;
                 checkbox.checked = meal.selected_options.includes(ingredient.name);
-                checkbox.onchange = () => toggleOptionalIngredient(meal.id, ingredient.name);
+                checkbox.addEventListener('change', () => this.toggleOptionalIngredient(meal.id, ingredient.name));
                 label.appendChild(checkbox);
             }
     
-            if (ingredient.variants.length > 0) {
+            if (ingredient.variants && ingredient.variants.length > 0) {
                 ingredient.variants.forEach(variant => {
+                    const variantDiv = document.createElement('div');
+                    variantDiv.className = 'variant-option';
+                    
                     const variantCheckbox = document.createElement('input');
                     variantCheckbox.type = 'checkbox';
                     variantCheckbox.id = `variant-${meal.id}-${index}-${variant}`;
                     variantCheckbox.checked = meal.selected_options.includes(`${variant} ${ingredient.name}`);
-                    variantCheckbox.onchange = () => toggleVariantOption(meal.id, `${variant} ${ingredient.name}`);
+                    
                     const variantLabel = document.createElement('label');
                     variantLabel.textContent = variant;
                     variantLabel.insertBefore(variantCheckbox, variantLabel.firstChild);
-                    div.appendChild(variantLabel);
+                    
+                    variantCheckbox.addEventListener('change', () => 
+                        this.toggleVariantOption(meal.id, `${variant} ${ingredient.name}`)
+                    );
+                    
+                    variantDiv.appendChild(variantLabel);
+                    div.appendChild(variantDiv);
                 });
             }
     
-            modalContent.appendChild(div);
+            this.mealSelectionModalContent.appendChild(div);
         });
     
-        document.getElementById('meal-selection-modal').style.display = 'block';
+        this.mealSelectionModal.style.display = 'block';
     }
 
-    async function toggleVariantOption(mealId, variantName) {
-        const mealIndex = meals.findIndex(m => m.id === mealId);
-        if (mealIndex !== -1) {
-            const meal = meals[mealIndex];
-            const selected_options = [...meal.selected_options];
-            const optionIndex = selected_options.indexOf(variantName);
-            
-            if (optionIndex > -1) {
-                selected_options.splice(optionIndex, 1);
-            } else {
-                selected_options.push(variantName);
-            }
+    async toggleOptionalIngredient(mealId, ingredientName) {
+        const meal = this.meals.find(m => m.id === mealId);
+        if (!meal) return;
 
-            const { error } = await supabase
-                .from('meals')
-                .update({ selected_options })
-                .eq('id', mealId);
+        const selected_options = [...meal.selected_options];
+        const optionIndex = selected_options.indexOf(ingredientName);
+        
+        if (optionIndex > -1) {
+            selected_options.splice(optionIndex, 1);
+        } else {
+            selected_options.push(ingredientName);
+        }
 
-            if (error) {
-                console.error('Error updating variant options:', error);
-                return;
-            }
-
-            await fetchMeals();
+        try {
+            await dbOperations.updateMealSelection(mealId, meal.selected, selected_options);
+            await this.loadMeals();
+        } catch (error) {
+            console.error('Error updating optional ingredients:', error);
         }
     }
 
-    document.getElementById('save-ingredients').addEventListener('click', () => {
-        saveSelectedIngredients(currentMealId);
-    });
+    async toggleVariantOption(mealId, variantName) {
+        const meal = this.meals.find(m => m.id === mealId);
+        if (!meal) return;
 
-    async function saveSelectedIngredients(mealId) {
-        const mealIndex = meals.findIndex(m => m.id === mealId);
-        if (mealIndex !== -1) {
-            const meal = meals[mealIndex];
-            let selected_options = [];
-    
-            for (let index = 0; index < meal.ingredients.length; index++) {
-                const ingredient = meal.ingredients[index];
-                let variantSelected = false;
-    
-                for (let variantIndex = 0; variantIndex < ingredient.variants.length; variantIndex++) {
-                    const variant = ingredient.variants[variantIndex];
+        const selected_options = [...meal.selected_options];
+        const optionIndex = selected_options.indexOf(variantName);
+        
+        if (optionIndex > -1) {
+            selected_options.splice(optionIndex, 1);
+        } else {
+            selected_options.push(variantName);
+        }
+
+        try {
+            await dbOperations.updateMealSelection(mealId, meal.selected, selected_options);
+            await this.loadMeals();
+        } catch (error) {
+            console.error('Error updating variant options:', error);
+        }
+    }
+
+    saveSelectedIngredients() {
+        const meal = this.meals.find(m => m.id === this.currentMealId);
+        if (!meal) return;
+
+        let selected_options = [];
+        
+        meal.ingredients.forEach((ingredient, index) => {
+            let variantSelected = false;
+
+            if (ingredient.variants) {
+                ingredient.variants.forEach(variant => {
                     const variantCheckboxId = `variant-${meal.id}-${index}-${variant}`;
-                    if (document.getElementById(variantCheckboxId) && document.getElementById(variantCheckboxId).checked) {
+                    const checkbox = document.getElementById(variantCheckboxId);
+                    if (checkbox && checkbox.checked) {
                         selected_options.push(`${variant} ${ingredient.name}`);
                         variantSelected = true;
                     }
+                });
+            }
+
+            if (!variantSelected) {
+                const optionalCheckboxId = `optional-ingredient-${index}`;
+                const optionalCheckbox = document.getElementById(optionalCheckboxId);
+                if (!ingredient.optional || (optionalCheckbox && optionalCheckbox.checked)) {
+                    selected_options.push(ingredient.name);
                 }
-    
-                if (!variantSelected) {
-                    const optionalCheckboxId = `optional-ingredient-${index}`;
-                    const optionalCheckbox = document.getElementById(optionalCheckboxId);
-                    if (!ingredient.optional || (optionalCheckbox && optionalCheckbox.checked)) {
-                        selected_options.push(ingredient.name);
-                    }
-                }
             }
-    
-            const { error } = await supabase
-                .from('meals')
-                .update({ selected_options })
-                .eq('id', mealId);
-
-            if (error) {
-                console.error('Error updating selected options:', error);
-                return;
-            }
-    
-            await fetchMeals();
-            closeModal();
-        }
-    }
-
-    async function toggleOptionalIngredient(mealId, ingredientName) {
-        const mealIndex = meals.findIndex(m => m.id === mealId);
-        if (mealIndex !== -1) {
-            const meal = meals[mealIndex];
-            const selected_options = [...meal.selected_options];
-            const optionIndex = selected_options.indexOf(ingredientName);
-            
-            if (optionIndex > -1) {
-                selected_options.splice(optionIndex, 1);
-            } else {
-                selected_options.push(ingredientName);
-            }
-
-            const { error } = await supabase
-                .from('meals')
-                .update({ selected_options })
-                .eq('id', mealId);
-
-            if (error) {
-                console.error('Error updating optional ingredients:', error);
-                return;
-            }
-
-            await fetchMeals();
-        }
-    }
-
-    window.closeModal = function() {
-        document.getElementById('ingredient-modal').style.display = 'none';
-        document.getElementById('meal-selection-modal').style.display = 'none';
-    }
-
-    window.deleteMeal = async function(mealId) {
-        const { error } = await supabase
-            .from('meals')
-            .delete()
-            .eq('id', mealId);
-
-        if (error) {
-            console.error('Error deleting meal:', error);
-            return;
-        }
-
-        await fetchMeals();
-    }
-
-    filterTypeSelect.addEventListener('change', () => {
-        const filterType = filterTypeSelect.value;
-        const searchName = searchNameInput.value.trim().toLowerCase();
-        renderMeals(filterType, searchName);
-    });
-
-    searchNameInput.addEventListener('input', () => {
-        const filterType = filterTypeSelect.value;
-        const searchName = searchNameInput.value.trim().toLowerCase();
-        renderMeals(filterType, searchName);
-    });
-
-    generateListButton.addEventListener('click', () => {
-        const selectedMeals = meals.filter(m => m.selected);
-        generateShoppingList(selectedMeals);
-    });
-
-    function generateShoppingList(selectedMeals) {
-        const ingredients = new Set();
-        
-        selectedMeals.forEach(meal => {
-            meal.selected_options.forEach(option => {
-                ingredients.add(option);
-            });
         });
-    
-        shoppingList.innerHTML = '';
-        ingredients.forEach(ingredient => {
-            const listItem = document.createElement('li');
-            listItem.textContent = ingredient;
-            shoppingList.appendChild(listItem);
-        });
-    }
 
-    // Initial render
-    renderMeals();
+        dbOperations.updateMealSelection(this.currentMealId, true, selected_options)
+            .then(() => this.loadMeals())
+            .then(() => this.closeModals())
+            .catch(error => console.error('Error saving selected ingredients:', error));
+    }
+}
+
+// Initialize the app when the DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    new MealPlanner();
 });
