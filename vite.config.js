@@ -1,6 +1,6 @@
-// vite.config.js
+
 export default {
-    base: 'meal-planner.github.io', // Replace with your repository name
+    base: './', // This makes all assets use relative paths
     build: {
       outDir: 'dist',
     },
