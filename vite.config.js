@@ -2,7 +2,6 @@
 import { defineConfig, loadEnv } from 'vite'
 
 export default defineConfig(({ mode }) => {
-  // Load env file based on `mode` in the current working directory.
   const env = loadEnv(mode, process.cwd(), '')
   
   return {
@@ -10,8 +9,16 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       rollupOptions: {
-        external: []
+        output: {
+          manualChunks: {
+            'supabase': ['@supabase/supabase-js']
+          }
+        }
       }
+    },
+    resolve: {
+      browserField: true,
+      mainFields: ['browser', 'module', 'main']
     },
     optimizeDeps: {
       include: ['@supabase/supabase-js']
