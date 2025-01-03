@@ -1,5 +1,7 @@
-document.addEventListener('DOMContentLoaded', () => {
-    let meals = JSON.parse(localStorage.getItem('meals')) || [];
+import { supabase } from './db.js'
+
+document.addEventListener('DOMContentLoaded', async () => {
+    let meals = [];
     const mealForm = document.getElementById('meal-form');
     const mealsList = document.getElementById('meals-list');
     const shoppingList = document.getElementById('list');
@@ -10,14 +12,33 @@ document.addEventListener('DOMContentLoaded', () => {
     let editId = null;
     let currentMealId;
 
+    // Fetch initial meals
+    async function fetchMeals() {
+        const { data, error } = await supabase
+            .from('meals')
+            .select('*');
+        
+        if (error) {
+            console.error('Error fetching meals:', error);
+            return;
+        }
+        
+        meals = data;
+        renderMeals();
+    }
+
+    // Initial load
+    await fetchMeals();
+
     mealForm.addEventListener('submit', (event) => {
-        console.log("add meal");
         event.preventDefault();
         const name = document.getElementById('meal-name').value.trim();
         const type = document.getElementById('meal-type').value;
-        // Split ingredients by newline or comma
-        let ingredients = document.getElementById('meal-ingredients').value.split(/[\n,]+/).map(ingredient => ingredient.trim()).filter(ingredient => ingredient);
-        console.log("got here");
+        let ingredients = document.getElementById('meal-ingredients').value
+            .split(/[\n,]+/)
+            .map(ingredient => ingredient.trim())
+            .filter(ingredient => ingredient);
+        
         showIngredientModal(ingredients, name, type);
     });
 
@@ -42,13 +63,13 @@ document.addEventListener('DOMContentLoaded', () => {
     
         document.getElementById('ingredient-modal').style.display = "block";
     }
-    
+
     window.showVariantInput = function(index) {
         const variantInput = document.getElementById(`variant-${index}`);
         variantInput.style.display = 'block';
     };
 
-    function confirmIngredients(name, type) {
+    async function confirmIngredients(name, type) {
         let updatedIngredients = [];
         const ingredientsElements = document.querySelectorAll('.ingredient-item');
     
@@ -57,7 +78,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const isOptional = document.getElementById(`optional-${index}`).checked;
             const variants = document.getElementById(`variant-${index}`).value.split(',').map(v => v.trim()).filter(v => v);
     
-            // Add the ingredient with its variants
             updatedIngredients.push({ 
                 name: baseIngredient, 
                 optional: isOptional, 
@@ -65,29 +85,40 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
     
-        saveMealData(updatedIngredients, name, type);
+        await saveMealData(updatedIngredients, name, type);
     }
 
-
-    function saveMealData(ingredients, name, type) {
+    async function saveMealData(ingredients, name, type) {
         const mealData = {
-            id: editMode ? editId : new Date().getTime(),
             name,
             type,
             ingredients,
             selected: false,
-            selectedOptions: []
+            selected_options: []
         };
 
         if (editMode) {
-            const mealIndex = meals.findIndex(meal => meal.id === editId);
-            meals[mealIndex] = mealData;
+            const { error } = await supabase
+                .from('meals')
+                .update(mealData)
+                .eq('id', editId);
+
+            if (error) {
+                console.error('Error updating meal:', error);
+                return;
+            }
         } else {
-            meals.push(mealData);
+            const { error } = await supabase
+                .from('meals')
+                .insert([mealData]);
+
+            if (error) {
+                console.error('Error inserting meal:', error);
+                return;
+            }
         }
 
-        localStorage.setItem('meals', JSON.stringify(meals));
-        renderMeals();
+        await fetchMeals();
         mealForm.reset();
         closeModal();
     }
@@ -104,45 +135,56 @@ document.addEventListener('DOMContentLoaded', () => {
                 mealElement.innerHTML = `
                     <input type="checkbox" id="meal-${meal.id}" ${meal.selected ? 'checked' : ''} onchange="toggleMealSelection(${meal.id})">
                     <label for="meal-${meal.id}" class="meal-name">${meal.name} (${meal.type})</label>
-                    <button class="edit-button" onclick="editMeal(${meal.id})">&#9998;</button> <!-- Edit button -->
+                    <button class="edit-button" onclick="editMeal(${meal.id})">&#9998;</button>
                     <button class="delete-button" onclick="deleteMeal(${meal.id})">&#10060;</button>
                 `;
     
                 mealsList.appendChild(mealElement);
             });
     }
-    
+
     window.editMeal = function(mealId) {
         const mealToEdit = meals.find(meal => meal.id === mealId);
         if (mealToEdit) {
-            // Populate the meal form fields with the data of the meal to be edited
             document.getElementById('meal-name').value = mealToEdit.name;
             document.getElementById('meal-type').value = mealToEdit.type;
-            document.getElementById('meal-ingredients').value = mealToEdit.ingredients.map(ing => ing.name).join('\n'); // Assuming ingredients are stored as an array of objects
-    
-            // Set up the application state or variables to indicate that you're in edit mode
+            document.getElementById('meal-ingredients').value = mealToEdit.ingredients.map(ing => ing.name).join('\n');
+            
             editMode = true;
             editId = mealId;
-    
-            // Optionally, adjust UI elements to reflect that the user is editing an existing meal
         }
     }
-    
 
-    window.toggleMealSelection = function(mealId) {
+    window.toggleMealSelection = async function(mealId) {
         const mealIndex = meals.findIndex(m => m.id === mealId);
         if (mealIndex !== -1) {
-            meals[mealIndex].selected = !meals[mealIndex].selected;
-            localStorage.setItem('meals', JSON.stringify(meals));
-            if (meals[mealIndex].selected) {
+            const newSelected = !meals[mealIndex].selected;
+            
+            const { error } = await supabase
+                .from('meals')
+                .update({ selected: newSelected })
+                .eq('id', mealId);
+
+            if (error) {
+                console.error('Error updating meal selection:', error);
+                return;
+            }
+
+            if (newSelected) {
                 showMealSelectionModal(meals[mealIndex]);
             } else {
-                // Deselect and remove options from the shopping list
-                meals[mealIndex].selectedOptions = [];
+                const { error: updateError } = await supabase
+                    .from('meals')
+                    .update({ selected_options: [] })
+                    .eq('id', mealId);
+
+                if (updateError) {
+                    console.error('Error clearing selected options:', updateError);
+                }
             }
-            renderMeals();
+            await fetchMeals();
         }
-    };    
+    }
 
     function showMealSelectionModal(meal) {
         currentMealId = meal.id; 
@@ -161,7 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
                 checkbox.id = `optional-ingredient-${index}`;
-                checkbox.checked = meal.selectedOptions.includes(ingredient.name);
+                checkbox.checked = meal.selected_options.includes(ingredient.name);
                 checkbox.onchange = () => toggleOptionalIngredient(meal.id, ingredient.name);
                 label.appendChild(checkbox);
             }
@@ -171,7 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const variantCheckbox = document.createElement('input');
                     variantCheckbox.type = 'checkbox';
                     variantCheckbox.id = `variant-${meal.id}-${index}-${variant}`;
-                    variantCheckbox.checked = meal.selectedOptions.includes(`${variant} ${ingredient.name}`);
+                    variantCheckbox.checked = meal.selected_options.includes(`${variant} ${ingredient.name}`);
                     variantCheckbox.onchange = () => toggleVariantOption(meal.id, `${variant} ${ingredient.name}`);
                     const variantLabel = document.createElement('label');
                     variantLabel.textContent = variant;
@@ -186,29 +228,42 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('meal-selection-modal').style.display = 'block';
     }
 
-    function toggleVariantOption(mealId, variantName) {
+    async function toggleVariantOption(mealId, variantName) {
         const mealIndex = meals.findIndex(m => m.id === mealId);
         if (mealIndex !== -1) {
-            const selectedOptions = meals[mealIndex].selectedOptions;
-            const optionIndex = selectedOptions.indexOf(variantName);
+            const meal = meals[mealIndex];
+            const selected_options = [...meal.selected_options];
+            const optionIndex = selected_options.indexOf(variantName);
+            
             if (optionIndex > -1) {
-                selectedOptions.splice(optionIndex, 1); // Remove the variant from selected options
+                selected_options.splice(optionIndex, 1);
             } else {
-                selectedOptions.push(variantName); // Add the variant to selected options
+                selected_options.push(variantName);
             }
-            localStorage.setItem('meals', JSON.stringify(meals));
+
+            const { error } = await supabase
+                .from('meals')
+                .update({ selected_options })
+                .eq('id', mealId);
+
+            if (error) {
+                console.error('Error updating variant options:', error);
+                return;
+            }
+
+            await fetchMeals();
         }
     }
-    
+
     document.getElementById('save-ingredients').addEventListener('click', () => {
         saveSelectedIngredients(currentMealId);
     });
 
-    function saveSelectedIngredients(mealId) {
+    async function saveSelectedIngredients(mealId) {
         const mealIndex = meals.findIndex(m => m.id === mealId);
         if (mealIndex !== -1) {
             const meal = meals[mealIndex];
-            meal.selectedOptions = [];
+            let selected_options = [];
     
             for (let index = 0; index < meal.ingredients.length; index++) {
                 const ingredient = meal.ingredients[index];
@@ -218,7 +273,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const variant = ingredient.variants[variantIndex];
                     const variantCheckboxId = `variant-${meal.id}-${index}-${variant}`;
                     if (document.getElementById(variantCheckboxId) && document.getElementById(variantCheckboxId).checked) {
-                        meal.selectedOptions.push(`${variant} ${ingredient.name}`);
+                        selected_options.push(`${variant} ${ingredient.name}`);
                         variantSelected = true;
                     }
                 }
@@ -227,44 +282,70 @@ document.addEventListener('DOMContentLoaded', () => {
                     const optionalCheckboxId = `optional-ingredient-${index}`;
                     const optionalCheckbox = document.getElementById(optionalCheckboxId);
                     if (!ingredient.optional || (optionalCheckbox && optionalCheckbox.checked)) {
-                        meal.selectedOptions.push(ingredient.name);
+                        selected_options.push(ingredient.name);
                     }
                 }
             }
     
-            localStorage.setItem('meals', JSON.stringify(meals));
-            // Close the modal and update the UI as needed
+            const { error } = await supabase
+                .from('meals')
+                .update({ selected_options })
+                .eq('id', mealId);
+
+            if (error) {
+                console.error('Error updating selected options:', error);
+                return;
+            }
+    
+            await fetchMeals();
             closeModal();
         }
     }
-    
-    
-    
-    
-    function toggleOptionalIngredient(mealId, ingredientName) {
+
+    async function toggleOptionalIngredient(mealId, ingredientName) {
         const mealIndex = meals.findIndex(m => m.id === mealId);
         if (mealIndex !== -1) {
-            const selectedOptions = meals[mealIndex].selectedOptions;
-            const optionIndex = selectedOptions.indexOf(ingredientName);
+            const meal = meals[mealIndex];
+            const selected_options = [...meal.selected_options];
+            const optionIndex = selected_options.indexOf(ingredientName);
+            
             if (optionIndex > -1) {
-                selectedOptions.splice(optionIndex, 1);
+                selected_options.splice(optionIndex, 1);
             } else {
-                selectedOptions.push(ingredientName);
+                selected_options.push(ingredientName);
             }
-            localStorage.setItem('meals', JSON.stringify(meals));
+
+            const { error } = await supabase
+                .from('meals')
+                .update({ selected_options })
+                .eq('id', mealId);
+
+            if (error) {
+                console.error('Error updating optional ingredients:', error);
+                return;
+            }
+
+            await fetchMeals();
         }
     }
 
     window.closeModal = function() {
         document.getElementById('ingredient-modal').style.display = 'none';
         document.getElementById('meal-selection-modal').style.display = 'none';
-        document.getElementById('meal-selection-modal').style.display = 'none';
     }
 
-    window.deleteMeal = function (mealId) {
-        meals = meals.filter(m => m.id !== mealId);
-        localStorage.setItem('meals', JSON.stringify(meals));
-        renderMeals();
+    window.deleteMeal = async function(mealId) {
+        const { error } = await supabase
+            .from('meals')
+            .delete()
+            .eq('id', mealId);
+
+        if (error) {
+            console.error('Error deleting meal:', error);
+            return;
+        }
+
+        await fetchMeals();
     }
 
     filterTypeSelect.addEventListener('change', () => {
@@ -288,13 +369,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const ingredients = new Set();
         
         selectedMeals.forEach(meal => {
-            meal.selectedOptions.forEach(option => {
-                // Add each selected option (base ingredient or variant) to the set
+            meal.selected_options.forEach(option => {
                 ingredients.add(option);
             });
         });
     
-        // Now populate the shopping list UI
         shoppingList.innerHTML = '';
         ingredients.forEach(ingredient => {
             const listItem = document.createElement('li');
@@ -302,7 +381,7 @@ document.addEventListener('DOMContentLoaded', () => {
             shoppingList.appendChild(listItem);
         });
     }
-    
 
+    // Initial render
     renderMeals();
 });
